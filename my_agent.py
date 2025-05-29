@@ -1,7 +1,7 @@
 """
 사용자의 음성을 인식해서 텍스트로 변환 후 명령을 수행하는 프로그램
 
--기능
+- 기능
 서울 날씨 -> 서울 기준 현재 날씨는 *입니다. 온도는 *도 입니다.
 서울 시간과 날짜 -> 서울 기준 현재 *년 *월 *일 입니다. 시간은 *시 *분 입니다.
 로스엔젤레스 시간 -> 로스엔젤레스 기준 현재 시간은 *시 *분 입니다.
@@ -10,13 +10,13 @@
 import datetime
 from pytz import timezone
 import speech_recognition as sr
-import datetime
 import requests
-import time
 from io import BytesIO
 from navertts import NaverTTS
 from pydub import AudioSegment
 from pydub.playback import play
+import os
+from dotenv import load_dotenv
 
 
 def find_city(keywords: list[str], sentence: str, default: str = "서울") -> str:
@@ -35,9 +35,11 @@ def get_weather(city: str) -> tuple:
     도시의 날씨와 온도를 반환한다
     """
 
-    city = city.replace("_", " ")  # 도시이름을 open weather에서 찾을 수 있도록 변경
+    city = city.replace(
+        "_", " "
+    )  # open weather에서 찾을 수 있는 형식으로 도시이름을 변경
 
-    API_KEY = "3bf5025e7a056c6a9f654fd7714db04b"  # API key
+    API_KEY = os.getenv("OPENWEATHER_API_KEY")  # API key
     BASE_URL = "http://api.openweathermap.org/data/2.5/weather"
     request_url = f"{BASE_URL}?appid={API_KEY}&q={city}&lang=kr"
     response = requests.get(request_url)
@@ -49,23 +51,16 @@ def get_weather(city: str) -> tuple:
     return weather, temperature  # 날씨와 온도를 튜플 형태로 반환
 
 
-def clova_voice(tts_text: str, date=False, time=False, weather=False) -> None:
+def clova_voice(tts_text: str) -> None:
     """
     Clova voice를 이용해 음성 출력
     """
     tts = NaverTTS(tts_text, lang="ko")
     fp = BytesIO()
     tts.write_to_fp(fp)
-    fp.seek(0)  # 포인터를 처음으로 돌리고
+    fp.seek(0)  # 포인터를 버퍼의 맨 앞으로 다시 옮기기
     my_sound = AudioSegment.from_file(fp, format="mp3")
-    my_sound += AudioSegment.silent(duration=200)
     play(my_sound)
-    # time.sleep(len(my_sound) / 1000 + 0.1)
-    # fp = BytesIO()
-    # tts.write_to_fp(fp)
-    # fp = BytesIO(fp.getvalue())
-    # my_sound = AudioSegment.from_file(fp, format="mp3")
-    # play(my_sound)
 
 
 def command_tts(user_command: str) -> None:
@@ -85,27 +80,25 @@ def command_tts(user_command: str) -> None:
         time_exist = "시간" in user_command
         weather_exist = "날씨" in user_command
 
-        city = find_city(cities_dict.keys(), user_command)
-        city_info = datetime.datetime.today().astimezone(timezone(cities_dict[city]))
-        city_info_to_date = datetime.datetime.fromisoformat(
-            str(city_info)
-        )  # iso 형식 타임스태프를 파싱
+        city_info = datetime.datetime.now(timezone(cities_dict[city_name]))
 
         full_voice = f"{city_name} 기준 현재"
 
-        if date_exist == True:
-            city_date = f"날짜는 {city_info_to_date.year}년 {city_info_to_date.month}월 {city_info_to_date.day}일 입니다."
+        if date_exist:
+            city_date = f"날짜는 {city_info.year}년 {city_info.month}월 {city_info.day}일 입니다."
             full_voice += city_date
-        if time_exist == True:
-            city_time = f"시간은 {city_info_to_date.hour}시 {city_info_to_date.minute}분 입니다."
+        if time_exist:
+            city_time = f"시간은 {city_info.hour}시 {city_info.minute}분 입니다."
             full_voice += city_time
-        if weather_exist == True:
+        if weather_exist:
             weather = get_weather(cities_dict.get(city_name).split("/")[-1])
             city_weather = f"날씨는 {weather[0]}, 온도는 {weather[1]:.0f}도 입니다."
             full_voice += city_weather
 
         clova_voice(full_voice)
 
+
+load_dotenv()
 
 cities_dict = {  # 도시 목록
     "서울": "Asia/Seoul",
@@ -121,14 +114,14 @@ microphone = sr.Microphone()
 while True:
     with microphone as source:
         r.adjust_for_ambient_noise(source)  # 배경 소음을 측정하고
-        command_tts("input_command")  # 명령을 내려주세요 음성
+        command_tts("input_command")  # 명령을 내려주세요 음성 출력
         audio = r.listen(source)  # 일정 크기 이상의 소리가 들리면 녹음
     try:
         text = r.recognize_google(audio, language="ko")  # 사용자 음성을 텍스트로 변환
     except:
-        command_tts("fail_recognize")  # 사용자 음성 인식 실패 시
+        command_tts("fail_recognize")  # 사용자 음성 인식 실패 시 출력
     else:
-        if "종료" in text:
+        if "종료" in text:  # 사용자가 종료라고 말하면 프로그램 종료
             clova_voice("프로그램을 종료합니다.")
             break
         command_tts(text)  # 성공했다면 command_tts에 사용자 명령을 보냄
